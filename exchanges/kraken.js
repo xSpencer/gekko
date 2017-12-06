@@ -1,7 +1,9 @@
 var Kraken = require('kraken-api-es5');
 var moment = require('moment');
-var util = require('../core/util');
 var _ = require('lodash');
+
+var util = require('../core/util');
+var Errors = require('../core/error');
 var log = require('../core/log');
 
 var crypto_currencies = [
@@ -94,47 +96,48 @@ var Trader = function(config) {
   );
 }
 
-var recoverableErrors = new RegExp(/(SOCKETTIMEDOUT|TIMEDOUT|CONNRESET|CONNREFUSED|NOTFOUND|API:Invalid nonce|Service:Unavailable|Request timed out|Response code 525|Response code 520|Response code 504|Response code 502)/)
+var retryCritical = {
+  retries: 10,
+  factor: 1.2,
+  minTimeout: 1 * 1000,
+  maxTimeout: 30 * 1000
+};
 
-Trader.prototype.retry = function(method, args, error, alwaysRetry) {
-  if (!alwaysRetry && (!error || !error.message.match(recoverableErrors))) {
-    log.error('[kraken.js] ', this.name, 'returned an irrecoverable error: ', error.message);
-    return false;
+var retryForever = {
+  forever: true,
+  factor: 1.2,
+  minTimeour: 10,
+  maxTimeout: 30
+};
+
+var recoverableErrors = new RegExp(/(SOCKETTIMEDOUT|TIMEDOUT|CONNRESET|CONNREFUSED|NOTFOUND|API:Invalid nonce|Service:Unavailable|Request timed out|Response code 520|Response code 504|Response code 502)/)
+
+Trader.prototype.processError = function(funcName, error, alwaysRecoverable) {
+  if (!error) return undefined;
+
+  if (!alwaysRecoverable && !error.message.match(recoverableErrors)) {
+    log.error(`[kraken.js] ${funcName} returned an irrecoverable error: ${error.message}`);
+    return new Errors.AbortError(error.message);
   }
 
-  // 5 -> 10s to avoid more rejection
-  var wait = +moment.duration(10, 'seconds');
-  log.debug('[kraken.js] (retry) ', this.name, 'returned an error, retrying..');
+  log.info(`[kraken.js] ${funcName} returned an error, retrying: ${error.message}`);
+  return new Errors.RetryError(error.message);
+};
 
-  var self = this;
+Trader.prototype.handleResponse = function(funcName, error, body, callback) {
+  if(_.isEmpty(body) || _.isEmpty(body.result))
+    err = new Error('NO DATA WAS RETURNED');
 
-  // make sure the callback (and any other fn)
-  // is bound to Trader
-  _.each(args, function(arg, i) {
-    if(_.isFunction(arg))
-      args[i] = _.bind(arg, self);
-  });
+  else if(!_.isEmpty(body.error))
+    err = new Error(body.error);
 
-  // run the failed method again with the same
-  // arguments after wait
-  setTimeout(
-    function() { method.apply(self, args) },
-    wait
-  );
-
-  return true;
+  return callback(this.processError(funcName, err, true), body);
 };
 
 Trader.prototype.getTrades = function(since, callback, descending) {
-  var args = _.toArray(arguments);
   var startTs = since ? moment(since).valueOf() : null;
 
   var process = function(err, trades) {
-    if (err || !trades || trades.length === 0) {
-      log.error('error getting trades', err);
-      return this.retry(this.getTrades, args, err, true);
-    }
-
     var parsedTrades = [];
     _.each(trades.result[this.pair], function(trade) {
       // Even when you supply 'since' you can still get more trades than you asked for, it needs to be filtered
@@ -163,7 +166,8 @@ Trader.prototype.getTrades = function(since, callback, descending) {
     reqData.since = startTs * 1000000;
   }
 
-  this.kraken.api('Trades', reqData, _.bind(process, this));
+  let handler = (cb) => this.kraken.api('Trades', reqData, cb);
+  util.retryCustom(retryForever, _.bind(handler, this), _.bind(process, this));
 };
 
 Trader.prototype.getPortfolio = function(callback) {
@@ -177,11 +181,8 @@ Trader.prototype.getPortfolio = function(callback) {
     else if(!_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if (err || !data.result) {
-      log.error('[kraken.js] ' , err);
-      if (!this.retry(this.getPortfolio, args, err))
-        return callback(err);
-    }
+    if (err || !data.result)
+      return callback(this.processError(err, true));
 
     // When using the prefix-less assets, you remove the prefix from the assset but leave
     // it on the curreny in this case. An undocumented Kraken quirk.
@@ -227,10 +228,8 @@ Trader.prototype.getTicker = function(callback) {
     else if(!err && !_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if (err) {
-      log.error('unable to get ticker', JSON.stringify(err));
-      return callback(err);
-    }
+    if (err)
+      return callback(this.processError(err));
 
     var result = data.result[this.pair];
     var ticker = {
@@ -271,19 +270,15 @@ Trader.prototype.addOrder = function(tradeType, amount, price, callback) {
 
   var setOrder = function(err, data) {
 
-    // console.log('blap', err, data);
-
     if(!err && _.isEmpty(data))
       err = new Error('no data (addOrder)');
+
     else if(!err && !_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if(err) {
-      log.error('unable to ' + tradeType.toLowerCase(), err);
-      if (!this.retry(this.addOrder, args, err))
-        return callback(err);
-    }
-
+    if(err)
+      return callback(this.processError(err));
+    
     var txid = data.result.txid[0];
     log.debug('added order with txid:', txid);
 
@@ -309,10 +304,8 @@ Trader.prototype.getOrder = function(order, callback) {
     else if(!err && !_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if(err) {
-      log.error('Unable to get order', order, JSON.stringify(err));
-      return callback(err);
-    }
+    if(err)
+      return callback(this.processError(err));
 
     var price = parseFloat( data.result[ order ].price );
     var amount = parseFloat( data.result[ order ].vol_exec );
@@ -340,10 +333,8 @@ Trader.prototype.checkOrder = function(order, callback) {
     if(!_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if(err) {
-      log.error('Unable to check order', order, JSON.stringify(err));
-      return callback(err);
-    }
+    if(err)
+      return callback(this.processError(err));
 
     var result = data.result[order];
     var stillThere = result.status === 'open' || result.status === 'pending';
@@ -358,14 +349,12 @@ Trader.prototype.cancelOrder = function(order, callback) {
   var cancel = function(err, data) {
     if(!err && _.isEmpty(data))
       err = new Error('no data (cancelOrder)');
+
     else if(!err && !_.isEmpty(data.error))
       err = new Error(data.error);
 
-    if(err) {
-      log.error('unable to cancel order', order, '(', err, JSON.stringify(err), ')');
-      if (!this.retry(this.cancelOrder, args, err))
-        return callback(err);
-    }
+    if(err) 
+      return callback(this.processError(err));
 
     callback();
   };

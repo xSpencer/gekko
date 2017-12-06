@@ -1,8 +1,10 @@
 var KrakenClient = require('kraken-api-es5')
-var util = require('../../core/util.js');
 var _ = require('lodash');
 var moment = require('moment');
+
+var util = require('../../core/util.js');
 var log = require('../../core/log');
+var Errors = require('../../core/error.js')
 
 var config = util.getConfig();
 
@@ -26,10 +28,10 @@ var fetch = () => {
 
     if (lastId) {
         var tidAsTimestamp = lastId / 1000000;
-        fetcher.getTrades(tidAsTimestamp, handleFetch);
+        util.retryForever((cb) => fetcher.getTrades(tidAsTimestamp, cb), handleFetch);
     }
     else
-        fetcher.getTrades(from, handleFetch);
+        util.retryForever((cb) => fetcher.getTrades(from, cb), handleFetch);
 }
 
 var handleFetch = (unk, trades) => {
