@@ -28,10 +28,10 @@ var fetch = () => {
 
     if (lastId) {
         var tidAsTimestamp = lastId / 1000000;
-        util.retryForever((cb) => fetcher.getTrades(tidAsTimestamp, cb), handleFetch);
+        fetcher.getTrades(tidAsTimestamp, handleFetch);
     }
     else
-        util.retryForever((cb) => fetcher.getTrades(from, cb), handleFetch);
+        fetcher.getTrades(from, handleFetch);
 }
 
 var handleFetch = (unk, trades) => {
