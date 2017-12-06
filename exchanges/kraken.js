@@ -106,7 +106,7 @@ var retryCritical = {
 var retryForever = {
   forever: true,
   factor: 1.2,
-  minTimeour: 10,
+  minTimeout: 10,
   maxTimeout: 30
 };
 
@@ -125,13 +125,15 @@ Trader.prototype.processError = function(funcName, error, alwaysRecoverable) {
 };
 
 Trader.prototype.handleResponse = function(funcName, error, body, callback) {
-  if(_.isEmpty(body) || _.isEmpty(body.result))
-    err = new Error('NO DATA WAS RETURNED');
+  if(!error) {
+    if(_.isEmpty(body) || !body.result)
+      error = new Error('NO DATA WAS RETURNED');
 
-  else if(!_.isEmpty(body.error))
-    err = new Error(body.error);
+    else if(!_.isEmpty(body.error))
+      error = new Error(body.error);
+  }
 
-  return callback(this.processError(funcName, err, true), body);
+  return callback(this.processError(funcName, error, true), body);
 };
 
 Trader.prototype.getTrades = function(since, callback, descending) {
