@@ -203,7 +203,7 @@ Trader.prototype.getPortfolio = function(callback) {
     return callback(undefined, portfolio);
   };
 
-  let handler = (cb) => this.kraken.api('Balance', reqData, (e,d) => this.handleResponse('getPortfolio', e, d, cb));
+  let handler = (cb) => this.kraken.api('Balance', {}, (e,d) => this.handleResponse('getPortfolio', e, d, cb));
   util.retryCustom(retryForever, _.bind(handler, this), _.bind(setBalance, this));
 };
 
