@@ -25,12 +25,7 @@ var retryHelper = function(fn, options, callback) {
         return;
       }
 
-      if (err) {
-        console.log('About to throw an error along ' + operation.mainError());
-        console.log(err);
-      }
-
-      callback(err ? operation.mainError() : null, result);
+      callback(err ? err.message : null, result);
     });
   });
 }
