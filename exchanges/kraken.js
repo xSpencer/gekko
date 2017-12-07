@@ -139,7 +139,7 @@ Trader.prototype.handleResponse = function(funcName, error, body, callback) {
 Trader.prototype.getTrades = function(since, callback, descending) {
   var startTs = since ? moment(since).valueOf() : null;
 
-  var process = function(err, trades) {
+  var processResults = function(err, trades) {
     if (err) return callback(err);
 
     var parsedTrades = [];
@@ -171,7 +171,7 @@ Trader.prototype.getTrades = function(since, callback, descending) {
   }
 
   let handler = (cb) => this.kraken.api('Trades', reqData, (e,d) => this.handleResponse('getTrades', e, d, cb));
-  util.retryCustom(retryForever, _.bind(handler, this), _.bind(process, this));
+  util.retryCustom(retryForever, _.bind(handler, this), _.bind(processResults, this));
 };
 
 Trader.prototype.getPortfolio = function(callback) {
