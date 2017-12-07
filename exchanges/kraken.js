@@ -112,10 +112,10 @@ var retryForever = {
 
 var recoverableErrors = new RegExp(/(SOCKETTIMEDOUT|TIMEDOUT|CONNRESET|CONNREFUSED|NOTFOUND|API:Invalid nonce|Service:Unavailable|Request timed out|Response code 520|Response code 504|Response code 502)/)
 
-Trader.prototype.processError = function(funcName, error, alwaysRecoverable) {
+Trader.prototype.processError = function(funcName, error) {
   if (!error) return undefined;
 
-  if (!alwaysRecoverable && !error.message.match(recoverableErrors)) {
+  if (!error.message.match(recoverableErrors)) {
     log.error(`[kraken.js] (${funcName}) returned an irrecoverable error: ${error.message}`);
     return new Errors.AbortError(error.message);
   }
@@ -133,7 +133,7 @@ Trader.prototype.handleResponse = function(funcName, error, body, callback) {
       error = new Error(body.error);
   }
 
-  return callback(this.processError(funcName, error, true), body);
+  return callback(this.processError(funcName, error), body);
 };
 
 Trader.prototype.getTrades = function(since, callback, descending) {
