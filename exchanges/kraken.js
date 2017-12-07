@@ -117,23 +117,25 @@ Trader.prototype.processError = function(funcName, error) {
 
   if (!error.message.match(recoverableErrors)) {
     log.error(`[kraken.js] (${funcName}) returned an irrecoverable error: ${error.message}`);
-    return new Errors.AbortError(error.message);
+    return new Errors.AbortError('[kraken.js] ' + error.message);
   }
 
-  log.info(`[kraken.js] (${funcName}) returned an error, retrying: ${error.message}`);
-  return new Errors.RetryError(error.message);
+  log.debug(`[kraken.js] (${funcName}) returned an error, retrying: ${error.message}`);
+  return new Errors.RetryError('[kraken.js] ' + error.message);
 };
 
-Trader.prototype.handleResponse = function(funcName, error, body, callback) {
-  if(!error) {
-    if(_.isEmpty(body) || !body.result)
-      error = new Error('NO DATA WAS RETURNED');
+Trader.prototype.handleResponse = function(funcName, callback) {
+  return (error, body) => {
+    if(!error) {
+      if(_.isEmpty(body) || !body.result)
+        error = new Error('NO DATA WAS RETURNED');
 
-    else if(!_.isEmpty(body.error))
-      error = new Error(body.error);
+      else if(!_.isEmpty(body.error))
+        error = new Error(body.error);
+    }
+
+    return callback(this.processError(funcName, error), body);
   }
-
-  return callback(this.processError(funcName, error), body);
 };
 
 Trader.prototype.getTrades = function(since, callback, descending) {
@@ -170,12 +172,14 @@ Trader.prototype.getTrades = function(since, callback, descending) {
     reqData.since = startTs * 1000000;
   }
 
-  let handler = (cb) => this.kraken.api('Trades', reqData, (e,d) => this.handleResponse('getTrades', e, d, cb));
+  let handler = (cb) => this.kraken.api('Trades', reqData, this.handleResponse('getTrades', cb));
   util.retryCustom(retryForever, _.bind(handler, this), _.bind(processResults, this));
 };
 
 Trader.prototype.getPortfolio = function(callback) {
+  console.log('getPortfolio');
   var setBalance = function(err, data) {
+    console.log('aa', arguments);
     if(err) return callback(err);
     log.debug('[kraken.js] entering "setBalance" callback after kraken-api call, data:' , data);
 
@@ -203,7 +207,7 @@ Trader.prototype.getPortfolio = function(callback) {
     return callback(undefined, portfolio);
   };
 
-  let handler = (cb) => this.kraken.api('Balance', {}, (e,d) => this.handleResponse('getPortfolio', e, d, cb));
+  let handler = (cb) => this.kraken.api('Balance', {}, this.handleResponse('getPortfolio', cb));
   util.retryCustom(retryForever, _.bind(handler, this), _.bind(setBalance, this));
 };
 
@@ -229,7 +233,7 @@ Trader.prototype.getTicker = function(callback) {
 
   let reqData = {pair: this.pair}
 
-  let handler = (cb) => this.kraken.api('Ticker', reqData, (e,d) => this.handleResponse('getTicker', e, d, cb));
+  let handler = (cb) => this.kraken.api('Ticker', reqData, this.handleResponse('getTicker', cb));
   util.retryCustom(retryForever, _.bind(handler, this), _.bind(setTicker, this));
 };
 
@@ -274,7 +278,7 @@ Trader.prototype.addOrder = function(tradeType, amount, price, callback) {
     volume: amount.toString()
   };
 
-  let handler = (cb) => this.kraken.api('AddOrder', reqData, (e,d) => this.handleResponse('addOrder', e, d, cb));
+  let handler = (cb) => this.kraken.api('AddOrder', reqData, this.handleResponse('addOrder', cb));
   util.retryCustom(retryCritical, _.bind(handler, this), _.bind(setOrder, this));
 };
 
@@ -291,7 +295,7 @@ Trader.prototype.getOrder = function(order, callback) {
   };
 
   let reqData = {txid: order};
-  let handler = (cb) => this.kraken.api('QueryOrders', reqData, (e,d) => this.handleResponse('getOrder', e, d, cb));
+  let handler = (cb) => this.kraken.api('QueryOrders', reqData, this.handleResponse('getOrder', cb));
   util.retryCustom(retryCritical, _.bind(handler, this), _.bind(getOrder, this));
 }
 
@@ -313,13 +317,13 @@ Trader.prototype.checkOrder = function(order, callback) {
   };
 
   let reqData = {txid: order};
-  let handler = (cb) => this.kraken.api('QueryOrders', reqData, (e,d) => this.handleResponse('checkOrder', e, d, cb));
+  let handler = (cb) => this.kraken.api('QueryOrders', reqData, this.handleResponse('checkOrder', cb));
   util.retryCustom(retryCritical, _.bind(handler, this), _.bind(check, this));
 };
 
 Trader.prototype.cancelOrder = function(order, callback) {
   let reqData = {txid: order};
-  let handler = (cb) => this.kraken.api('CancelOrder', reqData, (e,d) => this.handleResponse('cancelOrder', e, d, cb));
+  let handler = (cb) => this.kraken.api('CancelOrder', reqData, this.handleResponse('cancelOrder', cb));
   util.retryCustom(retryForever, _.bind(handler, this), callback);
 };
 
